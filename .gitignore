@@ -88,3 +88,6 @@ ENV/
 
 # mkdocs documentation
 /site
+
+.idea/
+client_secret.json
