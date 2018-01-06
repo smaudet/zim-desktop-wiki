@@ -684,6 +684,7 @@ class GtkInterface(gobject.GObject):
 		@param location: notebook location as uri or object with "uri" attribute
 		@param pagename: optional page name
 		'''
+		#TODO add notebook url code here
 		assert isinstance(location, basestring) or hasattr(location, 'uri')
 		assert pagename is None or isinstance(pagename, basestring)
 
