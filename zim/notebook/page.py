@@ -399,6 +399,7 @@ class Page(Path, SignalEmitter):
 
 		self._readonly = None
 		self._last_etag = None
+		#TODO this is probably where we need to edit - need to implement the google drive parser/dumper
 		self.format = zim.formats.get_format('wiki') # TODO make configurable
 		self.source = SourceFile(file.path) # XXX
 		self.source_file = file
