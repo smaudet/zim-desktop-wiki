@@ -14,6 +14,7 @@ the next time zim is started without arguments.
 
 import os
 import gtk
+import gtk.glade
 import pango
 import logging
 
@@ -386,8 +387,110 @@ class NotebookDialog(Dialog):
 				page = self.help_page
 			zim.main.ZIM_APPLICATION.run('--manual', page)
 
+class AddNotebookDialog():
 
-class AddNotebookDialog(Dialog):
+	def __init__(self, ui, name=None, folder=None):
+		try:
+			print('called')
+			fname = '/home/smaudet/development/zim-desktop-wiki/new-select.glade'
+			# create widget tree ...
+			self.widgetTree = gtk.glade.XML(fname)
+			self.dialog = self.widgetTree.get_widget("AddNotebookDialog")
+
+			self.find_widget('localName').connect('changed', self.on_name_changed)
+			self.find_widget('folderLocation').connect('changed', self.on_folder_changed)
+
+
+			self._block_update = False
+			self._folder_set = False
+			self._name_set = False
+
+			self.result = None
+
+			nb_folder = '~/Notebooks/'
+
+			if not self._name_set and not self._folder_set:
+				name = 'Notes'
+				folder = nb_folder + name
+
+		except Exception as e:
+			f = open('/home/smaudet/zim-log.txt','w')
+			f.write(str(e))
+			f.flush()
+			f.close()
+
+	def run(self):
+		self.dialog.show_all()
+		# if TEST_MODE:
+		# 	assert TEST_MODE_RUN_CB, 'Dialog run without test callback'
+		# 	TEST_MODE_RUN_CB(self)
+		# else:
+		while not self.destroyed:
+			# gtk.Dialog.run(self.dialog)
+  		    self.dialog.run()
+		return self.result
+
+	@property
+	def destroyed(self): return not self.dialog.has_user_ref_count
+		# Returns True when dialog has been destroyed
+
+	def find_widget(self, name):
+		return self.widgetTree.get_widget(name)
+
+	def on_name_changed(self, o, interactive=True):
+		# When name is changed, update folder accordingly
+		# unless the folder was set explicitly already
+		if self._block_update:
+			return
+		self._name_set = self._name_set or interactive
+		if self._folder_set:
+			return
+
+		name = self.find_widget('localName').get_text()
+		folder = self.find_widget('folderLocation').get_text()
+		dir = os.path.dirname(folder).strip('/\\')
+
+		self._block_update = True
+		self.find_widget('folderLocation').set_text(os.path.join(dir, name))
+		self._block_update = False
+
+	def on_folder_changed(self, o, interactive=True):
+		# When folder is changed, update name accordingly
+		if self._block_update:
+			return
+		self._folder_set = self._folder_set or interactive
+
+		# Check notebook info (even when name was set already)
+		if interactive or not self._name_set:
+			folder = self.find_widget('folder').get_text()
+			if folder and folder.exists():
+				info = get_notebook_info(folder)
+				if info:  # None when no config found
+					self._block_update = True
+					# self.form['name'] = info.name
+					self._block_update = False
+					return
+
+		# Else use basename unless the name was set explicitly already
+		if self._name_set:
+			return
+
+		folder = self.find_widget('folderLocation').get_text().strip('/\\')
+		self._block_update = True
+		# self.form['name'] = os.path.basename(folder)
+		self._block_update = False
+
+
+	def do_response_ok(self):
+		name = self.find_widget('localName').get_text()
+		folder = self.find_widget('folderLocation').get_text()
+		if name and folder:
+			self.result = {'name': name, 'folder': folder}
+			return True
+		else:
+			return False
+
+class AddNotebookDialogOld(Dialog):
 
 	def __init__(self, ui, name=None, folder=None):
 		Dialog.__init__(self, ui, _('Add Notebook')) # T: Dialog window title
