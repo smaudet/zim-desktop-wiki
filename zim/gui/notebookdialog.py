@@ -22,9 +22,10 @@ import zim.main
 from zim.fs import File, Dir
 from zim.notebook import get_notebook_list, get_notebook_info, init_notebook, NotebookInfo
 from zim.config import data_file
-from zim.gui.widgets import ui_environment, Dialog, IconButton, encode_markup_text, ScrolledWindow
+from zim.gui.widgets import ui_environment, Dialog, IconButton, encode_markup_text, ScrolledWindow, ErrorDialog
 
 logger = logging.getLogger('zim.gui.notebookdialog')
+logger.setLevel(10)
 
 
 OPEN_COL = 0   # column with boolean if notebook is open already
@@ -387,7 +388,7 @@ class NotebookDialog(Dialog):
 				page = self.help_page
 			zim.main.ZIM_APPLICATION.run('--manual', page)
 
-class AddNotebookDialog():
+class AddNotebookDialog(object):
 
 	def __init__(self, ui, name=None, folder=None):
 		try:
@@ -396,6 +397,7 @@ class AddNotebookDialog():
 			# create widget tree ...
 			self.widgetTree = gtk.glade.XML(fname)
 			self.dialog = self.widgetTree.get_widget("AddNotebookDialog")
+			self.dialog.connect('response', self.do_response)
 
 			self.find_widget('localName').connect('changed', self.on_name_changed)
 			self.find_widget('folderLocation').connect('changed', self.on_folder_changed)
@@ -414,10 +416,52 @@ class AddNotebookDialog():
 				folder = nb_folder + name
 
 		except Exception as e:
-			f = open('/home/smaudet/zim-log.txt','w')
+			f = open('/home/smaudet/zim-log.txt','a')
 			f.write(str(e))
 			f.flush()
 			f.close()
+    
+	def do_response(self, widget, id):
+		# Handler for the response signal, dispatches to do_response_ok()
+		# or do_response_cancel() and destroys the dialog if that function
+		# returns True.
+		# Ensure the dialog always closes on delete event, regardless
+		# of any errors or bugs that may occur.
+		if id == gtk.RESPONSE_OK:
+			logger.debug('Dialog response OK')
+			try:
+				destroy = self.do_response_ok()
+			except Exception as error:
+				ErrorDialog(self.ui, error).run()
+				destroy = False
+			else:
+				if not destroy:
+					logger.warning('Dialog input not valid')
+		elif id == gtk.RESPONSE_CANCEL:
+			logger.debug('Dialog response CANCEL')
+			try:
+				destroy = self.do_response_cancel()
+			except Exception as error:
+				ErrorDialog(self.ui, error).run()
+				destroy = False
+			else:
+				if not destroy:
+					logger.warning('Could not cancel dialog')
+		else:
+			destroy = True
+
+		try:
+			x, y = self.dialog.get_position()
+			self.dialog.uistate['_windowpos'] = (x, y)
+			w, h = self.dialog.get_size()
+			self.dialog.uistate['windowsize'] = (w, h)
+			self.dialog.save_uistate()
+		except:
+			logger.exception('Exception in do_response()')
+
+		if destroy:
+			self.dialog.destroy()
+			logger.debug('Closed dialog "%s"', self.title[:-6])
 
 	def run(self):
 		self.dialog.show_all()
@@ -462,7 +506,7 @@ class AddNotebookDialog():
 
 		# Check notebook info (even when name was set already)
 		if interactive or not self._name_set:
-			folder = self.find_widget('folder').get_text()
+			folder = self.find_widget('folderLocation').get_text()
 			if folder and folder.exists():
 				info = get_notebook_info(folder)
 				if info:  # None when no config found
@@ -489,6 +533,9 @@ class AddNotebookDialog():
 			return True
 		else:
 			return False
+
+	def do_response_cancel(self):
+		return True
 
 class AddNotebookDialogOld(Dialog):
 
