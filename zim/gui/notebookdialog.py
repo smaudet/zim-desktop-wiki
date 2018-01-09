@@ -22,7 +22,10 @@ import zim.main
 from zim.fs import File, Dir
 from zim.notebook import get_notebook_list, get_notebook_info, init_notebook, NotebookInfo
 from zim.config import data_file
-from zim.gui.widgets import ui_environment, Dialog, IconButton, encode_markup_text, ScrolledWindow, ErrorDialog
+from zim.gui.widgets import ui_environment, Dialog, IconButton, \
+	encode_markup_text, ScrolledWindow, ErrorDialog, FileDialog, FSPathEntry
+
+from zim.newfs import virtual
 
 logger = logging.getLogger('zim.gui.notebookdialog')
 logger.setLevel(10)
@@ -355,10 +358,21 @@ class NotebookDialog(Dialog):
 	def do_add_notebook(self, *a):
 		fields = AddNotebookDialog(self).run()
 		if fields:
-			dir = Dir(fields['folder'])
-			init_notebook(dir, name=fields['name'])
-			model = self.treeview.get_model()
-			model.append_notebook(dir.uri, name=fields['name'])
+			if fields['type'] == 'local':
+				dir = Dir(fields['folder'])
+				init_notebook(dir, name=fields['name'])
+				model = self.treeview.get_model()
+				model.append_notebook(dir.uri, name=fields['name'])
+			elif fields['type'] == 'google-drive':
+				#TODO set client secret here somehow
+				#make sure we are authenticated
+				virtual.get_credentials()
+				dir = Dir(fields['folder'])
+				init_notebook(dir, name=fields['name'])
+				model = self.treeview.get_model()
+				model.append_notebook(dir.uri, name=fields['name'])
+			else:
+				raise NotImplemented
 
 	#~ def do_edit_notebook(self, *a):
 		#~ model, iter = self.treeview.get_selection().get_selected()
@@ -388,16 +402,32 @@ class NotebookDialog(Dialog):
 				page = self.help_page
 			zim.main.ZIM_APPLICATION.run('--manual', page)
 
+
+def get_glade_dir():
+	exec_path = os.path.dirname(os.path.realpath(__file__))
+	assert isinstance(exec_path,str)
+	return os.path.abspath(os.path.join(exec_path,'../../'))
+
 class AddNotebookDialog(object):
 
 	def __init__(self, ui, name=None, folder=None):
+		self.widgets = {}
 		try:
-			print('called')
-			fname = '/home/smaudet/development/zim-desktop-wiki/new-select.glade'
+			fname = os.path.join(get_glade_dir(),'new-select.glade')
 			# create widget tree ...
 			self.widgetTree = gtk.glade.XML(fname)
 			self.dialog = self.widgetTree.get_widget("AddNotebookDialog")
 			self.dialog.connect('response', self.do_response)
+
+			self.chooseFolderBttn = self.find_widget('chooseFolderBttn')
+			self.chooseFolderBttn.action = gtk.FILE_CHOOSER_ACTION_OPEN
+
+			self.chooseFolderBttn.connect('clicked', self.popup_dialog)
+
+			# self.find_widget('gDriveName').connect('changed', self.g_drive_name_changed)
+			# self.find_widget('gDriveFolder').connect('changed', self.g_drive_folder_changed)
+			# self.find_widget('gClientId').connect('changed', self.g_client_id)
+			# self.find_widget('gClientSecret').connect('changed', self.g_client_secret)
 
 			self.find_widget('localName').connect('changed', self.on_name_changed)
 			self.find_widget('folderLocation').connect('changed', self.on_folder_changed)
@@ -420,6 +450,18 @@ class AddNotebookDialog(object):
 			f.write(str(e))
 			f.flush()
 			f.close()
+
+	def popup_dialog(self, widget):
+		'''Run a dialog to browse for a file or folder.
+        Used by the 'browse' button in input forms.
+        '''
+		window = self.chooseFolderBttn.get_toplevel()
+		title = _('Select Folder')  # T: dialog title
+
+		dialog = FileDialog(window, title, self.chooseFolderBttn.action)
+		file = dialog.run()
+		if not file is None:
+			self.find_widget('folderLocation').set_text(file.path)
     
 	def do_response(self, widget, id):
 		# Handler for the response signal, dispatches to do_response_ok()
@@ -479,7 +521,12 @@ class AddNotebookDialog(object):
 		# Returns True when dialog has been destroyed
 
 	def find_widget(self, name):
-		return self.widgetTree.get_widget(name)
+		if self.widgets.contains_key(name):
+			widget = self.widgets[name]
+		else:
+			widget = self.widgetTree.get_widget(name)
+			self.widgets[name] = widget
+		return widget
 
 	def on_name_changed(self, o, interactive=True):
 		# When name is changed, update folder accordingly
@@ -526,13 +573,25 @@ class AddNotebookDialog(object):
 
 
 	def do_response_ok(self):
-		name = self.find_widget('localName').get_text()
-		folder = self.find_widget('folderLocation').get_text()
-		if name and folder:
-			self.result = {'name': name, 'folder': folder}
-			return True
+		if self.find_widget('addNotebook').get_current_page() == 0:
+
+			name = self.find_widget('localName').get_text()
+			folder = self.find_widget('folderLocation').get_text()
+			if name and folder:
+				self.result = {'name': name, 'folder': folder, 'type': 'local'}
+				return True
+			else:
+				return False
 		else:
-			return False
+
+			driveName = self.find_widget('gDriveName')
+			driveFolder = self.find_widget('gDriveFolder')
+			driveClientId = self.find_widget('gClientId')
+			driveSecretId = self.find_widget('gClientSecret')
+
+			self.result = {'name': driveName, 'folder': driveFolder,
+						   'type':'google-drive',
+						   'clientId':driveClientId, 'clientSecret': driveSecretId}
 
 	def do_response_cancel(self):
 		return True
