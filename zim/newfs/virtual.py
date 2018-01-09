@@ -15,9 +15,10 @@ try:
 except ImportError:
     flags = None
 
-SCOPES = 'https://www.googleapis.com/auth/drive.metadata.readonly'
+SCOPES = 'https://www.googleapis.com/auth/drive'
 APPLICATION_NAME='StorageAPI'
-CLIENT_SECRET_FILE='client_secret.json'
+exec_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)),'../../'))
+CLIENT_SECRET_FILE = os.path.join(exec_path,'client_secret.json')
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -32,8 +33,7 @@ def get_credentials():
     credential_dir = os.path.join(home_dir, '.credentials')
     if not os.path.exists(credential_dir):
         os.makedirs(credential_dir)
-    credential_path = os.path.join(credential_dir,
-                                   'drive-python-quickstart.json')
+    credential_path = os.path.join(credential_dir, 'zim-storage-api.json')
 
     store = Storage(credential_path)
     credentials = store.get()
@@ -58,7 +58,11 @@ def _get_client():
 
 class VirtualFSObjectBase(FSObjectBase):
 
+    def _set_mtime(self, mtime):
+        pass
+
     def __init__(self, path, watcher=None):
+        super(VirtualFSObjectBase, self).__init__(path, watcher)
         self.needsUpdate = True
         self.path = path
         self.item = None
@@ -105,9 +109,6 @@ class VirtualFSObjectBase(FSObjectBase):
     def copyto(self, other):
         raise NotImplementedError
 
-    def _set_mtime(self, mtime):
-        raise NotImplementedError
-
 
 class VirtualFolder(VirtualFSObjectBase, Folder):
     def get_path(self):
@@ -147,8 +148,14 @@ class VirtualFile(VirtualFSObjectBase, File):
         return os.path.split(self.path)[1]
 
     def isequal(self, other):
-        #find other fileo
-        #check if ids match
+
+        if isinstance(other, VirtualFile):
+            if other.needsUpdate:
+                other.find_item()
+            if self.needsUpdate:
+                self.find_item()
+            return self.item['id'] == other.item['id']
+
         return False
 
     def parent(self):
@@ -159,12 +166,16 @@ class VirtualFile(VirtualFSObjectBase, File):
     def ctime(self):
         if self.needsUpdate:
             self.find_item()
-        return self.item.createdDate
+        return self.item['createdDate']
 
     def mtime(self):
         if self.needsUpdate:
             self.find_item()
-        return self.item.modifiedDate
+        return self.item['modifiedDate']
+
+    def is_folder(self):
+        return self.item is not None and self.item['mimeType'] == \
+               'application/vnd.google-apps.folder'
 
     def find_item(self):
         self.item = None
@@ -199,9 +210,9 @@ class VirtualFile(VirtualFSObjectBase, File):
             while paths_idx < last_idx :
                 results = service.files()\
                     .list(maxResults=1,
-                          q='\''+next_item['id']+'\' in parents and title = \'' +
-                            paths[paths_idx] + '\' and mimeType = '
-                           '\'application/vnd.google-apps.folder\'').execute()
+                        q='\''+next_item['id']+'\' in parents and title = \'' +
+                        paths[paths_idx] + '\' and mimeType = '
+                       '\'application/vnd.google-apps.folder\'').execute()
 
                 items = results.get('items')
                 if len(items):
@@ -229,8 +240,7 @@ class VirtualFile(VirtualFSObjectBase, File):
     def touch(self):
         if self.needsUpdate:
             self.find_item()
-        service.files().touch(fileId=self.item.id)
-        self.needsUpdate = True
+        self.item = service.files().touch(fileId=self.item['id']).execute()
 
     def moveto(self, other):
         folder, title = os.path.split(other)
