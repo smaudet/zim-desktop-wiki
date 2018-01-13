@@ -58,6 +58,9 @@ def _get_client():
 
 class VirtualFSObjectBase(FSObjectBase):
 
+    def write(self):
+        raise NotImplementedError
+
     def _set_mtime(self, mtime):
         pass
 
@@ -83,7 +86,7 @@ class VirtualFSObjectBase(FSObjectBase):
         raise NotImplementedError
 
     def remove(self):
-        pass
+        raise NotImplementedError
 
     def parent(self):
         raise NotImplementedError
@@ -141,6 +144,31 @@ class VirtualFolder(VirtualFSObjectBase, Folder):
 
 class VirtualFile(VirtualFSObjectBase, File):
 
+    def read(self):
+        if self.needsUpdate:
+            self.find_item()
+        if self.item:
+            return service.files().get(alt='media',fileId=self.item['id'])
+        return None
+
+    def readlines(self):
+        raise NotImplementedError
+
+    def rename(self, newpath):
+        raise NotImplementedError
+
+    def write(self):
+        raise NotImplementedError
+
+    def writelines(self, lines):
+        raise NotImplementedError
+
+    def remove(self):
+        if self.needsUpdate:
+            self.find_item()
+        if self.item:
+            self.item = service.files().remove(self.item['id'])
+
     def get_folder(self):
         return os.path.split(self.path)[0]
 
@@ -194,6 +222,8 @@ class VirtualFile(VirtualFSObjectBase, File):
                 items = results.get('items')
                 if len(items) > 0:
                     next_item = items[0]
+                else:
+                    raise Exception('invalid folder')
             else:
                 results = service.files().list(maxResults=1,
                                                q='\'root\' in parents and '
