@@ -5,9 +5,11 @@ import httplib2
 import os
 
 from apiclient import discovery
-from oauth2client import client
+from oauth2client import client, clientsecrets
 from oauth2client import tools
 from oauth2client.file import Storage
+
+import custom_client
 
 try:
     import argparse
@@ -41,7 +43,17 @@ def get_credentials():
     store = Storage(credential_path)
     credentials = store.get()
     if not credentials or credentials.invalid:
-        flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
+        # flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
+        flow = custom_client.flow_from_clientsecrets({
+            'client_type' : clientsecrets.TYPE_INSTALLED,
+            'client_info' :  {
+                "client_id": '<client id>',
+                "client_secret": '<client secret>',
+                "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://accounts.google.com/o/oauth2/token"
+            }
+        }, SCOPES)
         flow.user_agent = APPLICATION_NAME
         if flags:
             credentials = tools.run_flow(flow, store, flags)
