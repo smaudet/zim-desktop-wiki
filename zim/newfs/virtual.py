@@ -262,6 +262,11 @@ class VirtualFile(VirtualFSObjectBase, File):
                     self.item = items[0]
                     self.needsUpdate = False
 
+    def get_item(self):
+        if self.needsUpdate:
+            self.find_item()
+        return self.item
+
     def exists(self):
         if self.needsUpdate:
             self.find_item()
@@ -280,14 +285,17 @@ class VirtualFile(VirtualFSObjectBase, File):
             item = result.get('items')[0]
             new_parent = item.id
             previous_parents = ",".join([parent["id"] for parent in self.item.parents])
-            service.files().update(fileId=self.item.id, title=title,
+            service.files().update(fileId=self.item['id'], title=title,
                                    addParents=new_parent,
                                    removeParents=previous_parents)
         else:
-            service.files().update(fileId=self.item.id, title=title)
+            service.files().update(fileId=self.item['id'], title=title)
         self.needsUpdate = True
 
     def copyto(self, other):
-        service.files().copy().execute()
-        pass
+        item = self.get_item()
+        if item is not None:
+            body = { 'title': other }
+            service.files().copy(fileId=item['id'], body=body).execute()
+
 
