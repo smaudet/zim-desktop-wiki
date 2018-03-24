@@ -167,7 +167,7 @@ class VirtualFile(VirtualFSObjectBase, File):
         if self.needsUpdate:
             self.find_item()
         if self.item:
-            self.item = service.files().remove(self.item['id'])
+            self.item = service.files().delete(fileId=self.item['id'])
 
     def get_folder(self):
         return os.path.split(self.path)[0]
@@ -254,7 +254,7 @@ class VirtualFile(VirtualFSObjectBase, File):
                 .list(maxResults=1,
                       q='\'' + next_item['id'] +
                         '\' in parents and title = \'' +
-                        paths[paths_idx] + '\'').execute()
+                        paths[paths_idx] + '\' and trashed != true').execute()
 
             if self.item is None:
                 items = results.get('items')
@@ -292,10 +292,106 @@ class VirtualFile(VirtualFSObjectBase, File):
             service.files().update(fileId=self.item['id'], title=title)
         self.needsUpdate = True
 
+    def folder_exists(self, name):
+
+        #TODO local caching?
+
+        if name == '/':
+            return True
+
+        if name == '':
+            return False
+
+        # noinspection PyBroadException
+        try:
+            parents = self.get_folders_for_name(name)
+            return len(parents) > 0
+        except Exception as e:
+            return False
+
+        # query = '\''+next_item['id']+'\' in parents and title = \'' +
+        #       paths[paths_idx] +
+        #       '\' and mimeType = \'application/vnd.google-apps.folder\''
+        # service.files().list(maxResults=1, q=query).execute()
+
+    def create(self, name, isFolder=False):
+        folderPath, filename = os.path.split(name)
+        # media_body = MediaFileUpload()
+
     def copyto(self, other):
         item = self.get_item()
         if item is not None:
-            body = { 'title': other }
-            service.files().copy(fileId=item['id'], body=body).execute()
+            folderPath, filename = os.path.split(other)
+            if folderPath == '':
+                folderPath = self.get_folder()
+            # check folder exists and is same
+            if folderPath != self.get_folder():
+                if not self.folder_exists(folderPath):
+                    raise Exception('Folder' + folderPath + ' doesn\'t exist')
+                else:
+                    parents = self.get_folders_for_name(folderPath)
+                    body = {'title': filename, 'parents': [parents[-1]]}
+                    return service.files().copy(fileId=item['id'], body=body).execute()
+            else:
+                body = {'title': filename}
+                return service.files().copy(fileId=item['id'], body=body).execute()
+
+    def get_folders_for_name(self, name):
+        if not os.path.isabs(name):
+            # assume relative to current file
+            name = os.path.abspath(os.path.join(self.get_folder(), name))
+
+        paths = name.split(os.path.sep)
+        paths.remove('')
+        paths_len = len(paths)
+
+        parents = []
+        if paths_len > 0:
+
+            paths_idx = 0
+            if paths_len > 1:
+                results = service.files().list(maxResults=1,
+                    q='\'root\' in parents and title = \'' + paths[paths_idx] +
+                      '\' and mimeType = '
+                      '\'application/vnd.google-apps.folder\'').execute()
+
+                items = results.get('items')
+                if len(items) > 0:
+                    next_item = items[0]
+                    parents.append(next_item)
+                else:
+                    raise Exception('Invalid folder: '+paths[paths_idx])
+            else:
+                results = service.files().list(maxResults=1,
+                    q='\'root\' in parents and '
+                      'title = \'' + paths[0] + '\'').execute()
+                items = results.get('items')
+                if len(items):
+                    return [items[0]]
+                else:
+                    return parents
+
+            paths_idx += 1
+
+            last_idx = (paths_len - 1)
+
+            while paths_idx <= last_idx:
+                results = service.files() \
+                    .list(maxResults=1,
+                    q='\'' + next_item['id'] + '\' in parents and title = \'' +
+                      paths[paths_idx] + '\' and mimeType = '
+                                         '\'application/vnd.google-apps.folder\'').execute()
+
+                items = results.get('items')
+                if len(items):
+                    next_item = items[0]
+                    parents.append(next_item)
+                else:
+                    raise Exception('Invalid folder: '+paths[paths_idx])
+
+                paths_idx += 1
+
+        return parents
+
 
 

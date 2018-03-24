@@ -29,11 +29,41 @@ def test_copyto():
 
     virtfile2 = virtfs.VirtualFile('/notebooks/test/testcopy.txt')
     assert virtfile2.exists()
+    virtfile2.remove()
+
+    isPassed = False
+    try:
+        virtfile.copyto('/notebooks/other/testfile.txt')
+    except Exception as e:
+        isPassed = True
+    assert isPassed
+
+    res = virtfile.copyto('/notebooks/other2/testfile.txt')
+    res = virtfile.copyto('/someother/other/testfile.txt')
+
+    virtfile2 = virtfs.VirtualFile('/notebooks/other2/testfile.txt')
+    assert virtfile2.exists()
+    virtfile2 = virtfs.VirtualFile('/someother/other/testfile.txt')
+    assert virtfile2.exists()
+
+def test_folder_exists():
+    virtfile = virtfs.VirtualFile('/notebooks/test/testfile.txt')
+    assert virtfile.exists()
+
+    assert virtfile.folder_exists(virtfile.get_folder())
+    assert virtfile.folder_exists('/web')
+    assert virtfile.folder_exists('/')
+    assert virtfile.folder_exists('.')
+    assert not virtfile.folder_exists('/notebooks/other')
+    assert not virtfile.folder_exists('/completely_bogus')
+    assert not virtfile.folder_exists('')
 
 if __name__ == '__main__':
 
     # test_parent_mtime_ctime_touch()
 
     test_copyto()
+
+    # test_folder_exists()
 
     #TODO moveto, parent correct return
