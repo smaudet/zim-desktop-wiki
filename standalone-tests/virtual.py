@@ -58,12 +58,105 @@ def test_folder_exists():
     assert not virtfile.folder_exists('/completely_bogus')
     assert not virtfile.folder_exists('')
 
+def test_moveto():
+    virtfile = virtfs.VirtualFile('/notebooks/test/testfile.txt')
+    assert virtfile.exists()
+
+    virtfile.moveto('/notebooks/test/testfile2.txt')
+
+    virtfile2 = virtfs.VirtualFile('/notebooks/test/testfile2.txt')
+    assert virtfile2.exists()
+    assert not virtfile.exists()
+
+    virtfile2.moveto('/notebooks/test/testfile.txt')
+
+    assert not virtfile2.exists()
+    assert virtfile.exists()
+
+def test_create():
+    virtfile = virtfs.VirtualFile('/notebooks/test/dontexistyet.txt')
+    assert not virtfile.exists()
+    virtfile.create('/notebooks/test/dontexistyet.txt', data=u'Hello World')
+    virtfile.create('/notebooks/test/testcreate', isFolder=True)
+    assert virtfile.exists()
+    assert virtfs._exists('/notebooks/test/testcreate')
+
+def test_create_file():
+    virtfile = virtfs.VirtualFile('/notebooks/test/lorumipsum.txt')
+    assert not virtfile.exists()
+    virtfile.create('/notebooks/test/lorumipsum.txt', actual_file='./lorumipsum.txt')
+    assert virtfile.exists()
+
+def test_update():
+    assert False
+
+def test_read():
+    virtfile = virtfs.VirtualFile('/notebooks/test/testfile.txt')
+    result = virtfile.read()
+    print(result)
+    assert result == 'testfile\n'
+
+def test_read_lines():
+    virtfile = virtfs.VirtualFile('/notebooks/test/lorumipsum.txt')
+    assert virtfile.exists()
+    lines = virtfile.readlines()
+    assert len(lines) == 10
+
+def test_write():
+    try:
+        virtfile = virtfs.VirtualFile('/notebooks/test/something_new.txt')
+        assert not virtfile.exists()
+        virtfile.write(u'Hello One')
+        assert virtfile.read() == 'Hello One'
+        virtfile.write(u'Hello Two')
+        assert virtfile.read() == 'Hello Two'
+    finally:
+        virtfile = virtfs.VirtualFile('/notebooks/test/something_new.txt')
+        if virtfile.exists():
+            virtfile.remove()
+
+def test_write_lines():
+    try:
+        virtfile = virtfs.VirtualFile('/notebooks/test/something_new.txt')
+        assert not virtfile.exists()
+        virtfile.writelines(['one','two','three'])
+        assert virtfile.read() == 'one\ntwo\nthree'
+        virtfile.writelines(['four','five','six'])
+        assert virtfile.read() == 'four\nfive\nsix'
+    finally:
+        virtfile = virtfs.VirtualFile('/notebooks/test/something_new.txt')
+        if virtfile.exists():
+            virtfile.remove()
+
+def cleanup():
+    # virtfile = virtfs.VirtualFile('/notebooks/test/testfile2.txt')
+    # virtfile.remove()
+    pass
+
 if __name__ == '__main__':
 
     # test_parent_mtime_ctime_touch()
 
-    test_copyto()
+    # test_copyto()
 
     # test_folder_exists()
 
-    #TODO moveto, parent correct return
+    # test_moveto()
+
+    # test_create()
+
+    # test_create_file()
+
+    # test_read()
+
+    # test_read_lines()
+
+    # test_write()
+
+    test_write_lines()
+
+    # cleanup()
+
+    #TODO general code cleanup
+
+    #TODO general file util methods (not instance based)

@@ -1,3 +1,7 @@
+from io import StringIO
+
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+
 from zim.fs import File
 from zim.newfs import FSObjectBase, FileNotFoundError, FileUnicodeError, Folder, FileExistsError
 
@@ -141,33 +145,102 @@ class VirtualFolder(VirtualFSObjectBase, Folder):
     def copyto(self, other):
         pass
 
+def _find_item(path):
+    paths = path.split(os.path.sep)
+    paths.remove('')
+    paths_len = len(paths)
+    if paths_len > 0:
+
+        paths_idx = 0
+        if paths_len > 1:
+            results = service.files().list(maxResults=1,
+                q='\'root\' in parents and title = \'' + paths[paths_idx] +
+                  '\' and mimeType = '
+                  '\'application/vnd.google-apps.folder\'').execute()
+
+            items = results.get('items')
+            if len(items) > 0:
+                next_item = items[0]
+            else:
+                raise Exception('invalid folder')
+        else:
+            results = service.files().list(maxResults=1,
+                q='\'root\' in parents and '
+                  'title = \'' + paths[0] + '\'').execute()
+            items = results.get('items')
+            if len(items):
+                return items[0]
+            return None
+
+        paths_idx += 1
+
+        last_idx = (paths_len - 1)
+
+        while paths_idx < last_idx:
+            results = service.files() \
+                .list(maxResults=1,
+                q='\'' + next_item['id'] + '\' in parents and title = \'' +
+                  paths[paths_idx] + '\' and mimeType = '
+                                     '\'application/vnd.google-apps.folder\'').execute()
+
+            items = results.get('items')
+            if len(items):
+                next_item = items[0]
+
+            paths_idx += 1
+
+        results = service.files() \
+            .list(maxResults=1,
+            q='\'' + next_item['id'] +
+              '\' in parents and title = \'' +
+              paths[paths_idx] + '\' and trashed != true').execute()
+
+        items = results.get('items')
+        if len(items):
+            return items[0]
+        return None
+
+def _exists(path):
+    return _find_item(path) is not None
 
 class VirtualFile(VirtualFSObjectBase, File):
 
-    def read(self):
+    def update_item(self):
         if self.needsUpdate:
             self.find_item()
+
+    def read(self):
+        self.update_item()
         if self.item:
-            return service.files().get(alt='media',fileId=self.item['id'])
+            return service.files().get_media(fileId=self.item['id']).execute()
         return None
 
     def readlines(self):
-        raise NotImplementedError
+        self.update_item()
+        if self.item:
+            return service.files().get_media(
+                fileId=self.item['id']).execute().split('\n')
 
     def rename(self, newpath):
-        raise NotImplementedError
+        self.moveto(newpath)
 
-    def write(self):
-        raise NotImplementedError
+    def write(self, text):
+        self.update_item()
+        if not self.exists():
+            self.create(self.path, data=text)
+        else:
+            self.update(data=text)
 
     def writelines(self, lines):
-        raise NotImplementedError
+        if lines is not None and len(lines) > 0:
+            return self.write(unicode('\n'.join(lines)))
+        return None
 
     def remove(self):
         if self.needsUpdate:
             self.find_item()
         if self.item:
-            self.item = service.files().delete(fileId=self.item['id'])
+            self.item = service.files().delete(fileId=self.item['id']).execute()
 
     def get_folder(self):
         return os.path.split(self.path)[0]
@@ -280,16 +353,16 @@ class VirtualFile(VirtualFSObjectBase, File):
     def moveto(self, other):
         folder, title = os.path.split(other)
         if self.get_folder() != folder:
-            #find folder - needs to be tested
-            result = service.files().list(maxResults=20, title=folder).execute()
-            item = result.get('items')[0]
-            new_parent = item.id
-            previous_parents = ",".join([parent["id"] for parent in self.item.parents])
-            service.files().update(fileId=self.item['id'], title=title,
-                                   addParents=new_parent,
-                                   removeParents=previous_parents)
+            parents = self.get_folders_for_name(folder)
+            body = {
+                'parents': [parents[-1]], 'title': title
+            }
+            service.files().update(fileId=self.item['id'], body=body).execute()
         else:
-            service.files().update(fileId=self.item['id'], title=title)
+            body = {
+                'title': title
+            }
+            service.files().update(fileId=self.item['id'], body=body).execute()
         self.needsUpdate = True
 
     def folder_exists(self, name):
@@ -306,17 +379,59 @@ class VirtualFile(VirtualFSObjectBase, File):
         try:
             parents = self.get_folders_for_name(name)
             return len(parents) > 0
-        except Exception as e:
+        except Exception:
             return False
 
-        # query = '\''+next_item['id']+'\' in parents and title = \'' +
-        #       paths[paths_idx] +
-        #       '\' and mimeType = \'application/vnd.google-apps.folder\''
-        # service.files().list(maxResults=1, q=query).execute()
+    def update(self, data=None, mime_type='text/plain', chunk_size=1024 * 1024):
+        if data is not None:
+            data_stream = StringIO()
+            data_stream.write(data)
+            media_body = MediaIoBaseUpload(data_stream, mimetype=mime_type,
+                chunksize=chunk_size, resumable=True)
+            body = {
+                'title': self.get_path(),
+                'mimeType': mime_type
+            }
+            return service.files().update(fileId=self.item['id'], body=body,
+                media_body=media_body).execute()
+        return None
 
-    def create(self, name, isFolder=False):
-        folderPath, filename = os.path.split(name)
-        # media_body = MediaFileUpload()
+    def create(self, name, data=None, actual_file=None, isFolder=False,
+        mime_type='text/plain', chunk_size=1024 * 1024):
+
+        folder_path, filename = os.path.split(name)
+        parents = self.get_folders_for_name(folder_path)
+        if isFolder:
+            body = {
+                'title': filename,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents' : [parents[-1]]
+            }
+            return service.files().insert(body=body).execute()
+        elif actual_file is not None:
+            actual_file = os.path.abspath(actual_file)
+            media_body = MediaFileUpload(actual_file, mimetype=mime_type,
+                resumable=True)
+            body = {
+                'title': filename,
+                'mimeType': mime_type,
+                'parents' : [parents[-1]]
+            }
+            return service.files().insert(body=body,
+                media_body=media_body).execute()
+        elif data is not None:
+            data_stream = StringIO()
+            data_stream.write(data)
+            media_body = MediaIoBaseUpload(data_stream, mimetype=mime_type,
+                chunksize=chunk_size, resumable=True)
+            body = {
+                'title': filename,
+                'mimeType': mime_type,
+                'parents' : [parents[-1]]
+            }
+            return service.files().insert(body=body,
+                media_body=media_body).execute()
+        return None
 
     def copyto(self, other):
         item = self.get_item()
