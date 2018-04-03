@@ -2,7 +2,7 @@ from io import StringIO
 
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
-from zim.fs import File
+from zim.fs import File, PathLookupError, Dir
 from zim.newfs import FSObjectBase, FileNotFoundError, FileUnicodeError, Folder, FileExistsError
 
 import os
@@ -59,8 +59,16 @@ def _get_client():
     http = creds.authorize(httplib2.Http())
     service = discovery.build('drive', 'v2', http=http)
 
+class WrapperFSObjectBase(FSObjectBase):
+    '''
+    This class exists to decouple implementations that want to use FSObjectBase
+    and Folder at the same time (not sure why those were coupled)
+    '''
+    def __init__(self, path, watcher=None):
+        FSObjectBase.__init__(self, path, watcher)
 
-class VirtualFSObjectBase(FSObjectBase):
+
+class VirtualFSObjectBase(WrapperFSObjectBase):
 
     def write(self):
         raise NotImplementedError
@@ -115,35 +123,6 @@ class VirtualFSObjectBase(FSObjectBase):
 
     def copyto(self, other):
         raise NotImplementedError
-
-
-class VirtualFolder(VirtualFSObjectBase, Folder):
-    def get_path(self):
-        pass
-
-    def isequal(self, other):
-        pass
-
-    def parent(self):
-        pass
-
-    def ctime(self):
-        pass
-
-    def mtime(self):
-        pass
-
-    def exists(self):
-        pass
-
-    def touch(self):
-        pass
-
-    def moveto(self, other):
-        pass
-
-    def copyto(self, other):
-        pass
 
 def _find_item(path):
     paths = path.split(os.path.sep)
@@ -213,13 +192,14 @@ class VirtualFile(VirtualFSObjectBase, File):
         self.update_item()
         if self.item:
             return service.files().get_media(fileId=self.item['id']).execute()
-        return None
+        raise FileNotFoundError(self.path)
 
     def readlines(self):
         self.update_item()
         if self.item:
             return service.files().get_media(
                 fileId=self.item['id']).execute().split('\n')
+        raise FileNotFoundError(self.path)
 
     def rename(self, newpath):
         self.moveto(newpath)
@@ -508,5 +488,65 @@ class VirtualFile(VirtualFSObjectBase, File):
 
         return parents
 
+class VirtualFolder(VirtualFile, Folder):
 
+    def __iter__(self):
+        pass
 
+    def list_names(self):
+        pass
+
+    def list_files(self):
+        pass
+
+    def list_folders(self):
+        pass
+
+    def file(self, path):
+        pass
+
+    def folder(self, path):
+        pass
+
+    def child(self, path):
+        pass
+
+    def isequal(self, other):
+        pass
+
+    # def uri(self):
+    #     pass
+
+    def file(self, path):
+        '''Get a L{File} object for a path below this folder
+
+        @param path: a (relative) file path as string, tuple or
+        L{FilePath} object. When C{path} is a L{File} object already
+        this method still enforces it is below this folder.
+        So this method can be used as check as well.
+
+        @returns: a L{File} object
+        @raises PathLookupError: if the path is not below this folder
+        '''
+        new_path = os.path.join(self.path, path)
+        if not _exists(new_path):
+            raise PathLookupError('%s path does not exist' % new_path)
+        return VirtualFile(new_path)
+
+    def subdir(self, path):
+        '''Get a L{Dir} object for a path below this folder
+
+        @param path: a (relative) file path as string, tuple or
+        L{FilePath} object. When C{path} is a L{Dir} object already
+        this method still enforces it is below this folder.
+        So this method can be used as check as well.
+
+        @returns: a L{Dir} object
+        @raises PathLookupError: if the path is not below this folder
+
+        '''
+
+        dir = Dir((self.path, path))
+        if not dir.path.startswith(self.path):
+            raise PathLookupError('%s is not below %s' % (dir, self))
+        return dir

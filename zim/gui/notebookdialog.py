@@ -20,12 +20,15 @@ import logging
 
 import zim.main
 from zim.fs import File, Dir
-from zim.notebook import get_notebook_list, get_notebook_info, init_notebook, NotebookInfo
+from zim.newfs.virtual import VirtualFolder
+from zim.notebook import get_notebook_list, get_notebook_info, init_notebook, NotebookInfo, \
+	init_notebook_gdrive
 from zim.config import data_file
 from zim.gui.widgets import ui_environment, Dialog, IconButton, \
 	encode_markup_text, ScrolledWindow, ErrorDialog, FileDialog, FSPathEntry
 
 from zim.newfs import virtual
+from zim.parsing import is_url_re, is_uri_re
 
 logger = logging.getLogger('zim.gui.notebookdialog')
 logger.setLevel(10)
@@ -49,11 +52,15 @@ def prompt_notebook():
 		logger.debug('First time usage - prompt for notebook folder')
 		fields = AddNotebookDialog(ui=None).run()
 		if fields:
-			dir = Dir(fields['folder'])
-			init_notebook(dir, name=fields['name'])
-			list.append(NotebookInfo(dir.uri, name=fields['name']))
-			list.write()
-			return NotebookInfo(dir.uri, name=fields['name'])
+			if fields['type'] == 'local':
+				dir = Dir(fields['folder'])
+				init_notebook(dir, name=fields['name'])
+				list.append(NotebookInfo(dir.uri, name=fields['name']))
+				list.write()
+				return NotebookInfo(dir.uri, name=fields['name'])
+			else:
+				# folder = VirtualFolder(fields['folder'])
+				return NotebookInfo('google-drive: '+fields['folder'], name=fields['name'])
 		else:
 			return None # User canceled the dialog ?
 	else:
@@ -107,7 +114,7 @@ class NotebookTreeModel(gtk.ListStore):
 		it will be looked up by reading the config file of the notebook.
 		Returns an iter for this notebook in the list.
 		'''
-		assert uri.startswith('file://')
+		# assert uri.startswith('file://')
 		info = NotebookInfo(uri, name=name)
 		info.update()
 		self._append(info)
@@ -115,7 +122,11 @@ class NotebookTreeModel(gtk.ListStore):
 		return len(self) - 1 # iter
 
 	def _append(self, info):
-		path = File(info.uri).path
+		if is_uri_re.match(info.uri) and is_uri_re[1] == 'google-drive':
+			path = info.uri
+		else:
+			path = File(info.uri).path
+
 		text = '<b>%s</b>\n<span foreground="#5a5a5a" size="small">%s</span>' % \
 				(encode_markup_text(info.name), encode_markup_text(path))
 				# T: Path label in 'open notebook' dialog
@@ -367,10 +378,12 @@ class NotebookDialog(Dialog):
 				#TODO set client secret here somehow
 				#make sure we are authenticated
 				virtual.get_credentials()
-				dir = Dir(fields['folder'])
-				init_notebook(dir, name=fields['name'])
+				# dir = Dir(fields['folder'])
+				folder_name = fields['folder']
+				name = fields['name']
+				init_notebook_gdrive(folder_name, name=name)
 				model = self.treeview.get_model()
-				model.append_notebook(dir.uri, name=fields['name'])
+				model.append_notebook('google-drive:/'+folder_name, name=name)
 			else:
 				raise NotImplemented
 
@@ -424,8 +437,10 @@ class AddNotebookDialog(object):
 
 			self.chooseFolderBttn.connect('clicked', self.popup_dialog)
 
+			# This is for interactive path fixing
 			# self.find_widget('gDriveName').connect('changed', self.g_drive_name_changed)
 			# self.find_widget('gDriveFolder').connect('changed', self.g_drive_folder_changed)
+
 			# self.find_widget('gClientId').connect('changed', self.g_client_id)
 			# self.find_widget('gClientSecret').connect('changed', self.g_client_secret)
 
@@ -521,12 +536,29 @@ class AddNotebookDialog(object):
 		# Returns True when dialog has been destroyed
 
 	def find_widget(self, name):
-		if self.widgets.contains_key(name):
+		if self.widgets.has_key(name):
 			widget = self.widgets[name]
 		else:
 			widget = self.widgetTree.get_widget(name)
 			self.widgets[name] = widget
 		return widget
+
+	def g_drive_name_changed(self, o, interactive=True):
+		# When name is changed, update folder accordingly
+		# unless the folder was set explicitly already
+		if self._block_update:
+			return
+		self._name_set = self._name_set or interactive
+		if self._folder_set:
+			return
+
+		name = self.find_widget('gDriveName').get_text()
+		folder = self.find_widget('gDriveFolder').get_text()
+		dir = os.path.dirname(folder).strip('/\\')
+
+		self._block_update = True
+		self.find_widget('folderLocation').set_text(os.path.join(dir, name))
+		self._block_update = False
 
 	def on_name_changed(self, o, interactive=True):
 		# When name is changed, update folder accordingly
@@ -584,14 +616,18 @@ class AddNotebookDialog(object):
 				return False
 		else:
 
-			driveName = self.find_widget('gDriveName')
-			driveFolder = self.find_widget('gDriveFolder')
-			driveClientId = self.find_widget('gClientId')
-			driveSecretId = self.find_widget('gClientSecret')
+			drive_name = self.find_widget('gDriveName').get_text()
+			drive_folder = self.find_widget('gDriveFolder').get_text()
+			drive_client_id = self.find_widget('gClientId').get_text()
+			drive_secret_id = self.find_widget('gClientSecret').get_text()
 
-			self.result = {'name': driveName, 'folder': driveFolder,
-						   'type':'google-drive',
-						   'clientId':driveClientId, 'clientSecret': driveSecretId}
+			if drive_name and drive_folder and drive_client_id and drive_secret_id:
+				self.result = {'name': drive_name, 'folder': drive_folder,
+							   'type':'google-drive',
+							   'clientId':drive_client_id, 'clientSecret': drive_secret_id}
+				return True
+			else:
+				return False
 
 	def do_response_cancel(self):
 		return True

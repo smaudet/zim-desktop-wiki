@@ -133,6 +133,16 @@ def cleanup():
     # virtfile.remove()
     pass
 
+
+def test_make_folder():
+    virtfolder = virtfs.VirtualFolder('/notebooks/test')
+    assert virtfolder.exists()
+
+def test_get_folder_file():
+    virtfolder = virtfs.VirtualFolder('/notebooks/test')
+    file = virtfolder.file('notebook.zim')
+    assert file.exists()
+
 if __name__ == '__main__':
 
     # test_parent_mtime_ctime_touch()
@@ -153,10 +163,20 @@ if __name__ == '__main__':
 
     # test_write()
 
-    test_write_lines()
+    # test_write_lines()
+
+    # test_make_folder()
+
+    test_get_folder_file()
 
     # cleanup()
 
     #TODO general code cleanup
 
     #TODO general file util methods (not instance based)
+
+    #TODO test folder moveto/copyto
+
+    #TODO test folder list_{names,files,folders}, file, folder, child, isequal
+
+    #TODO general code cleanup

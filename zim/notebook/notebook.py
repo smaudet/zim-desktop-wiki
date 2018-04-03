@@ -40,6 +40,7 @@ class NotebookConfig(INIConfigFile):
 
 	def __init__(self, file):
 		INIConfigFile.__init__(self, file)
+		#fixme - this shouldn't be nt/dos for remote protocols
 		if os.name == 'nt':
 			endofline = 'dos'
 		else:
@@ -223,7 +224,7 @@ class Notebook(ConnectorMixin, SignalEmitter):
 		@param dir: a L{Dir} object
 		@returns: a L{Notebook} object
 		'''
-		assert isinstance(dir, Dir)
+		# assert isinstance(dir, Dir)
 
 		nb = _NOTEBOOK_CACHE.get(dir.uri)
 		if nb:

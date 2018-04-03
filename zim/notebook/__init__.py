@@ -53,7 +53,7 @@ from .layout import encode_filename, decode_filename
 from .index import IndexNotFoundError, \
 	LINK_DIR_BACKWARD, LINK_DIR_BOTH, LINK_DIR_FORWARD
 
-
+from zim.newfs import virtual as virtfs
 
 def build_notebook(location):
 	'''Create a L{Notebook} object for a file location
@@ -73,38 +73,42 @@ def build_notebook(location):
 			page = url_decode(page)
 			page = Path(page)
 
-	# Automount if needed
-	filepath = FilePath(uri)
-	if not filepath.exists():
-		mount_notebook(filepath)
+	if uri.startswith('google-drive:/'):
+		drive_folder = uri[len('google-drive:/'):]
+		dir = virtfs.VirtualFolder(drive_folder)
+	else:
+		# Automount if needed
+		filepath = FilePath(uri)
 		if not filepath.exists():
-			raise FileNotFoundError(filepath)
+			mount_notebook(filepath)
+			if not filepath.exists():
+				raise FileNotFoundError(filepath)
 
-	# Figure out the notebook dir
-	if filepath.isdir():
-		dir = Dir(uri)
-		file = None
-	else:
-		file = File(uri)
-		dir = file.dir
+		# Figure out the notebook dir
+		if filepath.isdir():
+			dir = Dir(uri)
+			file = None
+		else:
+			file = File(uri)
+			dir = file.dir
 
-	if file and file.basename == 'notebook.zim':
-		file = None
-	else:
-		parents = list(dir)
-		parents.reverse()
-		for parent in parents:
-			if parent.file('notebook.zim').exists():
-				dir = parent
-				break
+		if file and file.basename == 'notebook.zim':
+			file = None
+		else:
+			parents = list(dir)
+			parents.reverse()
+			for parent in parents:
+				if parent.file('notebook.zim').exists():
+					dir = parent
+					break
 
-	# Resolve the page for a file
-	if file:
-		path = file.relpath(dir)
-		if '.' in path:
-			path, _ = path.rsplit('.', 1) # remove extension
-		path = path.replace('/', ':')
-		page = Path(path)
+		# Resolve the page for a file
+		if file:
+			path = file.relpath(dir)
+			if '.' in path:
+				path, _ = path.rsplit('.', 1) # remove extension
+			path = path.replace('/', ':')
+			page = Path(path)
 
 	# And finally create the notebook
 	notebook = Notebook.new_from_dir(dir)
@@ -153,4 +157,16 @@ def init_notebook(dir, name=None):
 	dir.touch()
 	config = NotebookConfig(dir.file('notebook.zim'))
 	config['Notebook']['name'] = name or dir.basename
+	config.write()
+
+def init_notebook_gdrive(drive_folder, name=None):
+	'''Initialize a new notebook in a directory'''
+	# assert isinstance(dir, Dir)
+	from .notebook import NotebookConfig
+	# dir.touch()
+	import os
+	from zim.newfs import virtual as virtfs
+	virtfile = virtfs.VirtualFile(os.path.join(drive_folder, 'notebook.zim'))
+	config = NotebookConfig(virtfile)
+	config['Notebook']['name'] = name or drive_folder.split('/')[-1]
 	config.write()
