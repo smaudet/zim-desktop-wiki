@@ -3,6 +3,8 @@
 import os
 import logging
 
+from zim.newfs.virtual import VirtualFile
+
 logger = logging.getLogger('zim.notebook.index')
 
 
@@ -125,6 +127,25 @@ class FilesIndexer(SignalEmitter):
 
 			self.db.commit()
 			yield
+
+	def interactive_add_virtualfile(self, file):
+
+		assert isinstance(file, VirtualFile) and file.exists()
+		parent_id = file.parent()['id']
+		path = file.relpath(self.folder)
+
+		self.db.execute(
+			'INSERT INTO files(path, node_type, index_status, parent)'
+			' VALUES (?, ?, ?, ?)',
+			(path, TYPE_FILE, STATUS_NEED_UPDATE, parent_id),
+		)
+		row = self.db.execute(
+			'SELECT * FROM files WHERE path=?', (path,)
+		).fetchone()
+
+		self.emit('file-row-inserted', row)
+
+		self.update_file(row['id'], file)
 
 	def interactive_add_file(self, file):
 		assert isinstance(file, File) and file.exists()

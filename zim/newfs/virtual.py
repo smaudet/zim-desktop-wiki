@@ -268,7 +268,7 @@ class VirtualFile(VirtualFSObjectBase, File):
 
     def writelines(self, lines):
         if lines is not None and len(lines) > 0:
-            return self.write(unicode('\n'.join(lines)))
+            return self.write(unicode(''.join(lines)))
         return None
 
     def remove(self):
@@ -563,11 +563,10 @@ class VirtualFolder(VirtualFile, Folder):
     def list_folders(self):
         pass
 
-    def file(self, path):
-        pass
-
     def folder(self, path):
-        pass
+        sub_path = os.path.join(self.path, path)
+        file = VirtualFile(sub_path)
+        return VirtualFolder(file.get_folder())
 
     def child(self, path):
         pass

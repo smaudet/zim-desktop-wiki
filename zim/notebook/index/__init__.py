@@ -9,6 +9,8 @@ from __future__ import with_statement
 import sqlite3
 import logging
 
+from zim.newfs.virtual import VirtualFile
+
 logger = logging.getLogger('zim.notebook.index')
 
 try:
@@ -224,6 +226,8 @@ class Index(SignalEmitter):
 			else: # file.exists():
 				if isinstance(file, File):
 					filesindexer.interactive_add_file(file)
+				elif isinstance(file, VirtualFile):
+					filesindexer.interactive_add_virtualfile(file)
 				elif isinstance(file, Folder):
 					filesindexer.interactive_add_folder(file)
 				else:
