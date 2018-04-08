@@ -2,8 +2,9 @@ from io import StringIO
 
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
-from zim.fs import File, PathLookupError, Dir
-from zim.newfs import FSObjectBase, FileNotFoundError, FileUnicodeError, Folder, FileExistsError
+from zim.fs import File, PathLookupError, Dir, _md5
+from zim.newfs import FSObjectBase, FileNotFoundError, FileUnicodeError, Folder, FileExistsError, \
+    FileChangedError
 
 import os
 import httplib2
@@ -70,7 +71,16 @@ class WrapperFSObjectBase(FSObjectBase):
 
 class VirtualFSObjectBase(WrapperFSObjectBase):
 
-    def write(self):
+    def read(self):
+        raise NotImplementedError
+
+    def readlines(self):
+        raise NotImplementedError
+
+    def write(self, text):
+        raise NotImplementedError
+
+    def writelines(self, lines):
         raise NotImplementedError
 
     def _set_mtime(self, mtime):
@@ -123,6 +133,51 @@ class VirtualFSObjectBase(WrapperFSObjectBase):
 
     def copyto(self, other):
         raise NotImplementedError
+
+    def read_with_etag(self):
+        return self._read_with_etag(self.read)
+
+    def readlines_with_etag(self):
+        return self._read_with_etag(self.readlines)
+
+    def _read_with_etag(self, func):
+        mtime = self.mtime()  # Get before read!
+        content = func()
+        etag = (mtime, _md5(content))
+        return content, etag
+
+    def write_with_etag(self, text, etag):
+        return self._write_with_etag(self.write, text, etag)
+
+    def writelines_with_etag(self, lines, etag):
+        return self._write_with_etag(self.writelines, lines, etag)
+
+    def _write_with_etag(self, func, content, etag):
+        # TODO, to make rock-solid would also need to lock the file
+        # before etag check and release after write
+
+        if not self.exists():
+            # Goal is to prevent overwriting new content. If the file
+            # does not yet exist or went missing, just write it anyway.
+            pass
+        else:
+            if not self.verify_etag(etag):
+                raise FileChangedError(self)
+
+        func(content)
+        return self.mtime(), _md5(content)
+
+    def verify_etag(self, etag):
+        if isinstance(etag, tuple) and len(etag) == 2:
+            mtime = self.mtime()
+            if etag[0] != mtime:
+                # mtime fails .. lets see about md5
+                md5 = _md5(self.read())
+                return etag[1] == md5
+            else:
+                return True
+        else:
+            raise AssertionError('Invalid etag: %r' % etag)
 
 def _find_item(path):
     paths = path.split(os.path.sep)
@@ -240,19 +295,25 @@ class VirtualFile(VirtualFSObjectBase, File):
         return False
 
     def parent(self):
-        if self.needsUpdate:
-            self.find_item()
-        return self.item['parents'][0]
+        self.update_item()
+        if self.item:
+            return self.item['parents'][0]
+        else:
+            raise FileNotFoundError(self.path)
 
     def ctime(self):
-        if self.needsUpdate:
-            self.find_item()
-        return self.item['createdDate']
+        self.update_item()
+        if self.item:
+            return self.item['createdDate']
+        else:
+            raise FileNotFoundError(self.path)
 
     def mtime(self):
-        if self.needsUpdate:
-            self.find_item()
-        return self.item['modifiedDate']
+        self.update_item()
+        if self.item:
+            return self.item['modifiedDate']
+        else:
+            raise FileNotFoundError(self.path)
 
     def is_folder(self):
         return self.item is not None and self.item['mimeType'] == \
@@ -316,19 +377,19 @@ class VirtualFile(VirtualFSObjectBase, File):
                     self.needsUpdate = False
 
     def get_item(self):
-        if self.needsUpdate:
-            self.find_item()
+        self.update_item()
         return self.item
 
     def exists(self):
-        if self.needsUpdate:
-            self.find_item()
+        self.update_item()
         return self.item is not None and not self.item['labels']['trashed']
 
     def touch(self):
-        if self.needsUpdate:
-            self.find_item()
-        self.item = service.files().touch(fileId=self.item['id']).execute()
+        self.update_item()
+        if self.item:
+            self.item = service.files().touch(fileId=self.item['id']).execute()
+        else:
+            raise FileNotFoundError(self.path)
 
     def moveto(self, other):
         folder, title = os.path.split(other)
@@ -518,7 +579,9 @@ class VirtualFolder(VirtualFile, Folder):
     #     pass
 
     def file(self, path):
-        '''Get a L{File} object for a path below this folder
+        '''
+        TODO  need this behavior for Dir but not for LocalFolder
+        Get a L{File} object for a path below this folder
 
         @param path: a (relative) file path as string, tuple or
         L{FilePath} object. When C{path} is a L{File} object already
@@ -529,8 +592,8 @@ class VirtualFolder(VirtualFile, Folder):
         @raises PathLookupError: if the path is not below this folder
         '''
         new_path = os.path.join(self.path, path)
-        if not _exists(new_path):
-            raise PathLookupError('%s path does not exist' % new_path)
+        # if not _exists(new_path):
+        #     raise PathLookupError('%s path does not exist' % new_path)
         return VirtualFile(new_path)
 
     def subdir(self, path):

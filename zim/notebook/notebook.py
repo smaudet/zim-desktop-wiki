@@ -11,6 +11,8 @@ import weakref
 import logging
 import threading
 
+from zim.newfs.virtual import VirtualFolder
+
 logger = logging.getLogger('zim.notebook')
 
 from functools import partial
@@ -243,8 +245,10 @@ class Notebook(ConnectorMixin, SignalEmitter):
 		else:
 			cache_dir = _cache_dir_for_dir(dir)
 
-		#FIXME this needs to be changed to a non LocalFolder
-		folder = LocalFolder(dir.path)
+		if isinstance(dir, VirtualFolder):
+			folder = dir
+		else:
+		    folder = LocalFolder(dir.path)
 		layout = FilesLayout(folder, endofline)
 		cache_dir.touch() # must exist for index to work
 		index = Index(cache_dir.file('index.db').path, layout)
